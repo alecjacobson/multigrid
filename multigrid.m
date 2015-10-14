@@ -166,7 +166,37 @@ function [Z,data] = multigrid(Ain,B,V,T,varargin)
     ~isfield(data{1},'P') || isempty(data{1}.P) || ...
     ~isfield(data{1},'R') || isempty(data{1}.R)
     data{1}.P = prolongation(CV,CT,V,'Extrapolation',extrapolation);
+
+    sparse_P = true;
+    if sparse_P
+      %% This does not work.
+      %% only keep dim-1 per row
+      %[Y,J] = minnz(data{1}.P');
+      %P_new = data{1}.P - ...
+      %  sparse(1:size(data{1}.P,1),J,Y,size(data{1}.P,1),size(data{1}.P,2));
+      %P_new = diag(sum(P_new,2).^-1) * P_new;
+
+      % This seems to work.
+      % nonzeros in RAP sorted by absolute value
+      P = data{1}.P;
+      [I,J,Pnz] = find(P);
+      saPnz = sort(abs(Pnz),'descend');
+      % total number of desired non-zeros
+      avg_nnzpr = nnz(data{1}.P)/size(data{1}.P,1);
+      desired_nnz = min(floor((avg_nnzpr*0.25)*size(P,1)),numel(Pnz));
+      % threshold
+      th = saPnz(desired_nnz);
+      keep  = abs(Pnz)>=th;
+      P_new = sparse(I(keep),J(keep),Pnz(keep),size(P,1),size(P,2));
+      %% This makes no difference
+      %P_new = diag(sum(P_new,2).^-1) * P_new;
+
+      data{1}.P = P_new;
+    end
+
     data{1}.R = restrict_scalar*data{1}.P';
+
+
   end
   % Restriction
   %R = prolongation(V,T,VC);
@@ -180,7 +210,30 @@ function [Z,data] = multigrid(Ain,B,V,T,varargin)
   case 'galerkin'
     if ~isfield(data{1},'RAP') || isempty(data{1}.RAP)
       data{1}.RAP = data{1}.R*A*data{1}.P;
+
+      % This doesn't work.
+      % sparse_RAP = true;
+      % if sparse_RAP
+      %   % rename
+      %   RAP = data{1}.RAP;
+      %   % nonzeros in RAP sorted by absolute value
+      %   [I,J,RAPnz] = find(RAP);
+      %   saRAPnz = sort(abs(RAPnz),'descend');
+      %   desired_num_nnz_per_row = 15;
+      %   % total number of desired non-zeros
+      %   desired_nnz = min(floor(15*size(RAP,1)),numel(RAPnz));
+      %   % threshold
+      %   th = saRAPnz(desired_nnz);
+      %   keep  = abs(RAPnz)>=th;
+      %   RAP_new = sparse(I(keep),J(keep),RAPnz(keep),size(RAP,1),size(RAP,2));
+      %   %fprintf('%0.17g %0.17g\n',[norm2(data{1}.RAP) norm2(RAP_new)]);
+      %   data{1}.RAP = RAP_new;
+      % end
+      spy(data{1}.RAP);
+      pause
+
     end
+
     CAin = data{1}.RAP;
   case 'fem'
     CAin = Ain;
