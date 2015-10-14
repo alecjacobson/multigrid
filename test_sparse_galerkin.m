@@ -1,10 +1,11 @@
-[V,T] = regular_tetrahedral_mesh(20);
+%[V,T] = regular_tetrahedral_mesh(13);
 
 L = cotmatrix(V,T);
 M = massmatrix(V,T);
 
 A = -L;
-b = unique(boundary_faces(T));
+I = speye(size(A));
+boundary = unique(boundary_faces(T));
 A(boundary,:) = I(boundary,:);
 A(:,boundary) = I(:,boundary);
 B = M*ones(size(V,1),1);
@@ -13,19 +14,34 @@ Zex = A\B;
 
 F = boundary_faces(T);
 
+% relaxation weight
+rw = 1.0;
+sparse_P = 1.0;
 
-fprintf('Precomputing naive mg...\n');
+algebraic = true;
+if algebraic
+  effV = [];
+  effT = [];
+else
+  effV = V;
+  effT = T;
+end
+
 naive_data = {};
 % precomputation
+tic;
 [~,naive_data] = multigrid( ...
   A,B, ...
-  V,T, ...
+  effV,effT, ...
+  'Algebraic',algebraic, ...
+  'SparseP',sparse_P, ...
   'Data',naive_data, ...
   'RelaxMethod','sor', ...
-  'RelaxWeight',1.0, ...
+  'RelaxWeight',rw, ...
   'PreJacobiIterations',1, ... % do at least one to set data
   'PostJacobiIterations',0, ...
   'BoundaryFacets',F);
+fprintf('Precomputation: %g secs\n',toc);
 
 s = semilogy([nan ;nan],[nan ;nan],'-o','LineWidth',3);
 set(gca,'FontSize',15);
@@ -33,16 +49,19 @@ set(gca,'FontSize',15);
 tic;
 Z = zeros(size(B,1),1);
 E = [];
+tic;
 for iter = 1:100
 
   [Z,naive_data] = multigrid( ...
     A,B, ...
     [],[], ...
     'Z0',Z, ...
-    'PreJacobiIterations',10, ...
-    'PostJacobiIterations',10, ...
+    'Algebraic',algebraic, ...
+    'SparseP',sparse_P, ...
+    'PreJacobiIterations',2, ...
+    'PostJacobiIterations',2, ...
     'RelaxMethod','sor', ...
-    'RelaxWeight',1.0, ...
+    'RelaxWeight',rw, ...
     'Data',naive_data);
 
   E = [E;max(abs(bsxfun(@minus,A*Z,B)),[],1)/max(abs(B(:)))];
@@ -52,5 +71,9 @@ for iter = 1:100
     end
     drawnow;
   end
+  if E(end)<1e-13
+    break;
+  end
 
 end
+fprintf('Converged in: %g secs\n',toc);

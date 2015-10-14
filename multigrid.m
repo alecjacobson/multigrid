@@ -26,6 +26,8 @@ function [Z,data] = multigrid(Ain,B,V,T,varargin)
   %     'Hierarchy' followed by #levels list of {CV,CF} pairs of surface meshes,
   %     'MaxSize' should be set the size of the last CF.
   %     'RelaxWeight' followed by Jacobi relaxing weight {0.2}
+  %     'Algebraic' followed by true if using algebraic multigrid (A should be
+  %       passed as a matrix) {false}.
   %     'MaxSize'  followed by maximum subproblem size before using direct
   %       solver {1000}
   %     'Visualize'  followed by whether to visualize progress {false}
@@ -33,6 +35,9 @@ function [Z,data] = multigrid(Ain,B,V,T,varargin)
   %     'Data'  #levels of precomputed data (see output) {[]}
   %     'Extrapolation'  followed by extrapolation method used for prolongation
   %       operator (see prolongation.m optional input)
+  %     'SparseP' followed by ratio of non-zeros to keep in P {1}
+  %   Hidden:
+  %     'Level' followed by level
   % Outputs:
   %   Z  #V by 1 solution vector
   %   data  #levels of precomputed data: meshes, prolongation operators,
@@ -59,17 +64,20 @@ function [Z,data] = multigrid(Ain,B,V,T,varargin)
   levels = {};
   data = {};
   extrapolation = 'linear';
+  sparse_P = 1.0;
+  algebraic = false;
+  level = 1;
 
   rec_params = { ...
     'PreJacobiIterations','PostJacobiIterations','RelaxWeight', ...
     'Visualize','MaxSize','TetgenFlags','RestrictScalar','RelaxMethod', ...
-    'Extrapolation'};
+    'Extrapolation','SparseP','Algebraic'};
   rec_vars = { ...
     'pre_jac','post_jac','w', ...
     'vis','max_n','tetgen_flags','restrict_scalar','relax_method', ...
-    'extrapolation'};
-  init_params = {'Z0','Data','BoundaryFacets','Hierarchy'};
-  init_vars = {'Z','data','BF','levels'};
+    'extrapolation','sparse_P','algebraic'};
+  init_params = {'Z0','Data','BoundaryFacets','Hierarchy','Level'};
+  init_vars = {'Z','data','BF','levels','level'};
   params = {rec_params{:},init_params{:}};
   vars = {rec_vars{:},init_vars{:}};
   % Map of parameter names to variable names
@@ -148,7 +156,7 @@ function [Z,data] = multigrid(Ain,B,V,T,varargin)
     CV = levels{1}.V;
     CF = levels{1}.F;
   end
-  if numel(data)<2
+  if numel(data)<2 && ~algebraic
     data{2} = [];
     [CV,CT,CF] = coarsen( ...
       V,T, ...
@@ -156,6 +164,8 @@ function [Z,data] = multigrid(Ain,B,V,T,varargin)
       'CF',CF, ...
       'BoundaryFacets',BF, ...
       'TetgenFlags',tetgen_flags);
+    medit(CV,CT,CF);
+
   else
     CV = [];
     CT = [];
@@ -165,35 +175,36 @@ function [Z,data] = multigrid(Ain,B,V,T,varargin)
   if ...
     ~isfield(data{1},'P') || isempty(data{1}.P) || ...
     ~isfield(data{1},'R') || isempty(data{1}.R)
-    data{1}.P = prolongation(CV,CT,V,'Extrapolation',extrapolation);
+    if algebraic
+      data{1}.P = algebraic_prolongation(A,level);
+    else
+      data{1}.P = prolongation(CV,CT,V,'Extrapolation',extrapolation);
+    end
 
-    sparse_P = true;
-    if sparse_P
+    if sparse_P<1
       %% This does not work.
       %% only keep dim-1 per row
       %[Y,J] = minnz(data{1}.P');
       %P_new = data{1}.P - ...
       %  sparse(1:size(data{1}.P,1),J,Y,size(data{1}.P,1),size(data{1}.P,2));
       %P_new = diag(sum(P_new,2).^-1) * P_new;
-
       % This seems to work.
       % nonzeros in RAP sorted by absolute value
       P = data{1}.P;
       [I,J,Pnz] = find(P);
       saPnz = sort(abs(Pnz),'descend');
-      % total number of desired non-zeros
+      %% total number of desired non-zeros
+      %desired_nnz = min(floor(nnz(P)*sparse_P),numel(Pnz));
       avg_nnzpr = nnz(data{1}.P)/size(data{1}.P,1);
-      desired_nnz = min(floor((avg_nnzpr*0.25)*size(P,1)),numel(Pnz));
+      desired_nnz = min(floor((avg_nnzpr*sparse_P)*size(P,1)),numel(Pnz));
       % threshold
       th = saPnz(desired_nnz);
       keep  = abs(Pnz)>=th;
       P_new = sparse(I(keep),J(keep),Pnz(keep),size(P,1),size(P,2));
       %% This makes no difference
       %P_new = diag(sum(P_new,2).^-1) * P_new;
-
       data{1}.P = P_new;
     end
-
     data{1}.R = restrict_scalar*data{1}.P';
 
 
@@ -229,8 +240,6 @@ function [Z,data] = multigrid(Ain,B,V,T,varargin)
       %   %fprintf('%0.17g %0.17g\n',[norm2(data{1}.RAP) norm2(RAP_new)]);
       %   data{1}.RAP = RAP_new;
       % end
-      spy(data{1}.RAP);
-      pause
 
     end
 
@@ -257,6 +266,7 @@ function [Z,data] = multigrid(Ain,B,V,T,varargin)
     'Hierarchy', levels(2:end), ...
     'Data',data(2:end), ...
     'BoundaryFacets', CF, ...
+    'Level',level+1, ...
     rec_params_vals{:});
   data(1+(1:numel(data_child))) = data_child;
 

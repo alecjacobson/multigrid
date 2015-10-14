@@ -64,6 +64,16 @@ function [Z,data] = relax(A,B,Z,iters,varargin)
     if ...
       ~isfield(data,'DL') ||  isempty(data.DL) || ...
       ~isfield(data,'UE') || isempty(data.UE)
+      [~,p] = chol(A);
+      if p ~= 0
+        A = A + 1e-12*speye(size(A));
+      end
+
+      % this assumes A is symmetric
+      blank = ~any(A,2);
+      I = speye(size(A));
+      A(blank,:) = I(blank,:);
+
       D = diag(diag(A));
       L = -tril(A,-1);
       U = -triu(A,1);
@@ -83,6 +93,9 @@ function [Z,data] = relax(A,B,Z,iters,varargin)
       %  drawnow;
       %end
       Z = data.DL\(data.UE*Z + BE);
+      if any(isnan(Z))
+        asdf=1;
+      end
     end
   case 'gauss-seidel-alt'
     % http://stackoverflow.com/a/20914215/148668
@@ -90,12 +103,16 @@ function [Z,data] = relax(A,B,Z,iters,varargin)
       ~isfield(data,'Q') || isempty(data.Q)
       data.Q=tril(A);
     end
-    for iter=1:2*iters
+    for itteer=1:2*iters
       Z=Z+data.Q\(B-A*Z);
     end
   case 'jacobi'
     for iter = 1:iters
-      Z = Z+w*(B-A*Z);
+      %warning('this seems wrong...');
+      %Z = Z+w*(B-A*Z);
+      D = diag(diag(A));
+      R = A-D;
+      Z = w* D\(B - R*Z) + (1-w)*Z;
     end
   end
 end
