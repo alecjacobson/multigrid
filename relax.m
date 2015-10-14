@@ -12,17 +12,20 @@ function [Z,data] = relax(A,B,Z,iters,varargin)
   %   Optional:
   %     'Method' followed by one of:
   %       'jacobi'  Use Jacobi iterations
-  %       'sor'  use successive over relaxation (Gauss-Seidel with a weight)
-  %     'Weight'  followed by weight used for 'jacobi' or 'sor'
+  %       {'sor'}  use successive over relaxation (Gauss-Seidel with a weight)
+  %     'Weight'  followed by weight, when:
+  %       method is 'jacobi', weight should be in (0,{0.5},1], or if 
+  %       method is 'sor', weight should be in (0,{1},2) with weight = 1 -->
+  %         Gauss-Seidel.
   %     'Data'  followed by a struct of precomputed data (see output)
   % Outputs:
   %   Z  n by ncols new solution
   %   data  struct of precomputed data set by solver or passed as input
   %
 
-  method = 'jacobi';
+  method = 'sor';
   data = [];
-  w = 0.1;
+  w = [];
   V = [];
   T = [];
   % Map of parameter names to variable names
@@ -41,6 +44,15 @@ function [Z,data] = relax(A,B,Z,iters,varargin)
       error('Unsupported parameter: %s',varargin{v});
     end
     v=v+1;
+  end
+
+  if isempty(w)
+    switch method
+    case 'sor'
+      w = 1.0;
+    case 'jacobi'
+      w = 0.5;
+    end
   end
 
   %  Perform pre_jac steps of weighted Jacobi with weight w
